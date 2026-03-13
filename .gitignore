@@ -1,0 +1,5 @@
+node_modules/
+data/navios.db
+*.bat
+scripts/descargar-node.ps1
+INSTALAR.md
