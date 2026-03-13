@@ -1,0 +1,51 @@
+# 🚢 Navios SSPP — Instrucciones
+
+## Cómo usar (sin instalar nada)
+
+### Primera vez:
+1. Descomprimí esta carpeta donde quieras (ej: `C:\navios-sistema`)
+2. Doble click en **`INICIAR.bat`**
+3. La primera vez descarga Node.js automáticamente (~30MB) y crea la base de datos
+4. Se abre el navegador solo en `http://localhost:3000`
+
+### Todos los días:
+1. Doble click en **`INICIAR.bat`**
+2. Listo — el navegador se abre solo
+
+### Para que otros accedan desde su PC:
+- Mirá la ventana negra que aparece al iniciar
+- Verás la dirección: `http://192.168.x.x:3000`
+- Cualquier persona de la red escribe esa dirección en su navegador
+
+---
+
+## Usuarios y contraseñas iniciales
+
+| Usuario      | Contraseña      | Rol             |
+|--------------|-----------------|-----------------|
+| sortega      | sortega123      | Comprador       |
+| esantini     | esantini123     | Comprador       |
+| nacosta      | nacosta123      | Comprador       |
+| pmontemurro  | pmontemurro123  | Comprador       |
+| ataddei      | ataddei123      | Superintendente |
+| jdiaz        | jdiaz123        | Superintendente |
+| rgemini      | rgemini123      | Superintendente |
+| admin        | admin123        | Admin           |
+
+---
+
+## ¿Problemas con el Firewall?
+
+Si los demás equipos no pueden conectarse, ejecutá esto en PowerShell (como administrador):
+```
+netsh advfirewall firewall add rule name="Navios SSPP" dir=in action=allow protocol=TCP localport=3000
+```
+
+---
+
+## La base de datos
+
+Los datos se guardan en `data/navios.db`. 
+**No borrar ese archivo** — ahí están todos los cambios, historial y solicitudes.
+
+Hacé una copia de `data/navios.db` periódicamente como backup.
