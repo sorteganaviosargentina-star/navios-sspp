@@ -1,0 +1,18 @@
+{
+  "name": "navios-sspp",
+  "version": "1.0.0",
+  "description": "Sistema de Gestión de Solicitudes O260 - Navios Argentina",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node scripts/setup-db.js && node server/index.js",
+    "setup": "node scripts/setup-db.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^9.4.3",
+    "bcryptjs": "^2.4.3",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "multer": "^1.4.5-lts.1",
+    "xlsx": "^0.18.5"
+  }
+}
