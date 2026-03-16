@@ -63,6 +63,7 @@ db.exec(`
     estadoO260         TEXT,
     comentarioCompras  TEXT,
     proveedor          TEXT DEFAULT '',
+    precio_unitario    TEXT DEFAULT '',
     precio             TEXT DEFAULT '',
     updated_at         TEXT,
     updated_by         TEXT,
@@ -139,10 +140,10 @@ const seed = JSON.parse(fs.readFileSync(SEED_PATH, 'utf-8'));
 const insertSol = db.prepare(`
   INSERT OR IGNORE INTO solicitudes
     (numeroCaso, barco, linea, codigo, fechaSSPP, contadorDias, depto,
-     categoria, rubro, descripcion, cant, estadoO260, comentarioCompras, proveedor, precio)
+     categoria, rubro, descripcion, cant, estadoO260, comentarioCompras, proveedor, precio_unitario, precio)
   VALUES
     (@numeroCaso, @barco, @linea, @codigo, @fechaSSPP, @contadorDias, @depto,
-     @categoria, @rubro, @descripcion, @cant, @estadoO260, @comentarioCompras, @proveedor, @precio)
+     @categoria, @rubro, @descripcion, @cant, @estadoO260, @comentarioCompras, @proveedor, @precio_unitario, @precio)
 `);
 
 const seedAll = db.transaction((rows) => {
