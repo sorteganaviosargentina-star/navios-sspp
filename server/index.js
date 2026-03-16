@@ -148,14 +148,12 @@ app.get('/api/me', requireAuth, (req, res) => {
 // GET /api/solicitudes — con filtros y paginación
 app.get('/api/solicitudes', requireAuth, (req, res) => {
   const user  = req.session.user;
-  const { barco, estado, categoria, depto, rubro, q, page = 1, limit = 50, sortCol = 'fechaSSPP', sortDir = 'DESC' } = req.query;
+  const { barco, estado, categoria, depto, rubro, q,
+    cf_caso, cf_barco, cf_fecha, cf_estado, cf_proveedor, cf_rubro, cf_categoria,
+    page = 1, limit = 20, sortCol = 'fechaSSPP', sortDir = 'DESC' } = req.query;
 
-  // Barcos accesibles para este usuario
-  const barcosPermitidos = (user.rol === 'admin' || user.rol === 'supervisor')
-    ? null  // null = todos
-    : user.barcos;
+  const barcosPermitidos = (user.rol === 'admin' || user.rol === 'supervisor') ? null : user.barcos;
 
-  // Construir WHERE dinámico
   const conditions = [];
   const params     = [];
 
@@ -163,28 +161,36 @@ app.get('/api/solicitudes', requireAuth, (req, res) => {
     conditions.push(`barco IN (${barcosPermitidos.map(() => '?').join(',')})`);
     params.push(...barcosPermitidos);
   }
-  if (barco  && barco  !== 'Todos') { conditions.push('barco = ?');      params.push(barco); }
-  if (estado && estado !== 'Todos') { conditions.push('estadoO260 = ?'); params.push(estado); }
-  if (categoria && categoria !== 'Todos') { conditions.push('categoria = ?'); params.push(categoria); }
-  if (depto  && depto  !== 'Todos') { conditions.push('depto = ?');      params.push(depto); }
-  if (rubro  && rubro  !== 'Todos') { conditions.push('rubro = ?');      params.push(rubro); }
+  if (barco     && barco     !== 'Todos') { conditions.push('barco = ?');      params.push(barco); }
+  if (estado    && estado    !== 'Todos') { conditions.push('estadoO260 = ?'); params.push(estado); }
+  if (categoria && categoria !== 'Todos') { conditions.push('categoria = ?');  params.push(categoria); }
+  if (depto     && depto     !== 'Todos') { conditions.push('depto = ?');      params.push(depto); }
+  if (rubro     && rubro     !== 'Todos') { conditions.push('rubro = ?');      params.push(rubro); }
   if (q && q.trim()) {
     conditions.push(`(numeroCaso LIKE ? OR descripcion LIKE ? OR codigo LIKE ? OR comentarioCompras LIKE ? OR proveedor LIKE ?)`);
     const term = `%${q.trim()}%`;
     params.push(term, term, term, term, term);
   }
+  if (cf_caso)      { conditions.push('numeroCaso LIKE ?');  params.push(`%${cf_caso}%`); }
+  if (cf_barco)     { conditions.push('barco LIKE ?');       params.push(`%${cf_barco}%`); }
+  if (cf_fecha)     { conditions.push('fechaSSPP LIKE ?');   params.push(`%${cf_fecha}%`); }
+  if (cf_estado)    { conditions.push('estadoO260 LIKE ?');  params.push(`%${cf_estado}%`); }
+  if (cf_proveedor) { conditions.push('proveedor LIKE ?');   params.push(`%${cf_proveedor}%`); }
+  if (cf_rubro)     { conditions.push('rubro LIKE ?');       params.push(`%${cf_rubro}%`); }
+  if (cf_categoria) { conditions.push('categoria LIKE ?');   params.push(`%${cf_categoria}%`); }
 
   const where  = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const validCols = ['numeroCaso','barco','linea','fechaSSPP','estadoO260','categoria','rubro','cant','proveedor'];
   const col    = validCols.includes(sortCol) ? sortCol : 'fechaSSPP';
   const dir    = sortDir === 'ASC' ? 'ASC' : 'DESC';
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const lim    = Math.min(parseInt(limit)||20, 100);
+  const offset = (parseInt(page) - 1) * lim;
 
   const total = db.prepare(`SELECT COUNT(*) as c FROM solicitudes ${where}`).get(...params).c;
   const rows  = db.prepare(`SELECT * FROM solicitudes ${where} ORDER BY ${col} ${dir} LIMIT ? OFFSET ?`)
-    .all(...params, parseInt(limit), offset);
+    .all(...params, lim, offset);
 
-  res.json({ total, page: parseInt(page), limit: parseInt(limit), rows });
+  res.json({ total, page: parseInt(page), limit: lim, rows });
 });
 
 // GET /api/solicitudes/:id — una sola línea
