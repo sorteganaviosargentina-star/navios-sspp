@@ -16,15 +16,68 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, '..', 'data', 'navios.db');
 
-// ─── VERIFICAR DB ──────────────────────────────────────────────────────────────
+// ─── VERIFICAR / INICIALIZAR DB ──────────────────────────────────────────────
+const SEED_PATH = path.join(__dirname, '..', 'data', 'seed.json');
+
+function inicializarDB() {
+  console.log('🔧 Inicializando base de datos...');
+  const setupPath = path.join(__dirname, '..', 'scripts', 'setup-db.js');
+  require('child_process').execSync(`node ${setupPath}`, { stdio: 'inherit' });
+}
+
+function cargarSeed(db) {
+  if (!fs.existsSync(SEED_PATH)) { console.log('⚠️  Sin seed.json'); return; }
+  const seed = JSON.parse(fs.readFileSync(SEED_PATH, 'utf-8'));
+  const bcrypt = require('bcryptjs');
+  // Limpiar solicitudes existentes y recargar
+  db.prepare('DELETE FROM solicitudes').run();
+  const insert = db.prepare(`INSERT OR IGNORE INTO solicitudes
+    (numeroCaso, barco, linea, codigo, fechaSSPP, contadorDias, depto,
+     categoria, rubro, descripcion, cant, estadoO260, comentarioCompras, proveedor, precio_unitario, precio)
+    VALUES
+    (@numeroCaso, @barco, @linea, @codigo, @fechaSSPP, @contadorDias, @depto,
+     @categoria, @rubro, @descripcion, @cant, @estadoO260, @comentarioCompras, @proveedor, @precio_unitario, @precio)`);
+  const insertMany = db.transaction((rows) => {
+    for (const r of rows) insert.run({
+      ...r,
+      precio_unitario: r.precio_unitario || '',
+      precio: r.precio || '',
+      proveedor: r.proveedor || '',
+    });
+  });
+  insertMany(seed);
+  console.log(`✅ ${seed.length} solicitudes cargadas desde seed.json`);
+}
+
+// Detectar si hay que resetear la DB
+const RESET = process.env.RESET_DB === 'true';
+if (RESET && fs.existsSync(DB_PATH)) {
+  console.log('🔄 RESET_DB=true — eliminando DB existente para recargar datos...');
+  fs.unlinkSync(DB_PATH);
+}
+
 if (!fs.existsSync(DB_PATH)) {
-  console.error('❌ No se encontró la base de datos. Ejecutá primero: npm run setup');
-  process.exit(1);
+  inicializarDB();
 }
 
 const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
+
+// ─── MIGRACIÓN AUTOMÁTICA ────────────────────────────────────────────────────
+try {
+  const cols = db.prepare("PRAGMA table_info(solicitudes)").all().map(c=>c.name);
+  if (!cols.includes('precio_unitario')) {
+    db.prepare("ALTER TABLE solicitudes ADD COLUMN precio_unitario TEXT DEFAULT ''").run();
+    console.log('✅ Migración: columna precio_unitario agregada');
+  }
+} catch(e) { console.log('Migración:', e.message); }
+
+// Si se hizo RESET, recargar el seed (conservando usuarios y historial)
+if (RESET) {
+  cargarSeed(db);
+  console.log('✅ Reset completo. Reiniciá el servidor sin RESET_DB para operar normalmente.');
+}
 
 // ─── MIDDLEWARE ────────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '50mb' }));
@@ -187,7 +240,12 @@ app.get('/api/solicitudes', requireAuth, (req, res) => {
   const offset = (parseInt(page) - 1) * lim;
 
   const total = db.prepare(`SELECT COUNT(*) as c FROM solicitudes ${where}`).get(...params).c;
-  const rows  = db.prepare(`SELECT * FROM solicitudes ${where} ORDER BY ${col} ${dir} LIMIT ? OFFSET ?`)
+  const fechaSort = col === 'fechaSSPP' 
+    ? `CASE WHEN length(fechaSSPP)=10 AND substr(fechaSSPP,3,1)='-' 
+       THEN substr(fechaSSPP,7,4)||'-'||substr(fechaSSPP,4,2)||'-'||substr(fechaSSPP,1,2)
+       ELSE fechaSSPP END`
+    : col;
+  const rows  = db.prepare(`SELECT * FROM solicitudes ${where} ORDER BY ${fechaSort} ${dir} LIMIT ? OFFSET ?`)
     .all(...params, lim, offset);
 
   res.json({ total, page: parseInt(page), limit: lim, rows });
@@ -201,7 +259,7 @@ app.patch('/api/solicitudes/bulk', requireAuth, (req, res) => {
   const { ids, campos } = req.body;
   if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids requeridos' });
 
-  const CAMPOS_EDITABLES = ['estadoO260','comentarioCompras','rubro','proveedor','precio','categoria'];
+  const CAMPOS_EDITABLES = ['estadoO260','comentarioCompras','rubro','proveedor','precio','precio_unitario','categoria'];
   const updates = Object.entries(campos).filter(([k]) => CAMPOS_EDITABLES.includes(k) && campos[k] !== undefined && campos[k] !== '');
 
   if (!updates.length) return res.status(400).json({ error: 'Sin campos a actualizar' });
@@ -237,7 +295,7 @@ app.patch('/api/solicitudes/:id', requireAuth, (req, res) => {
   if (!sol) return res.status(404).json({ error: 'No encontrada' });
   if (!puedeEditarBarco(user, sol.barco)) return res.status(403).json({ error: 'Sin permiso para editar' });
 
-  const CAMPOS_EDITABLES = ['estadoO260','comentarioCompras','rubro','proveedor','precio','categoria'];
+  const CAMPOS_EDITABLES = ['estadoO260','comentarioCompras','rubro','proveedor','precio','precio_unitario','categoria'];
   const updates = [];
   const vals    = [];
 
@@ -310,7 +368,7 @@ app.get('/api/proveedores', requireAuth, (req, res) => {
   const params = barcosPermitidos || [];
 
   const rows = db.prepare(`
-    SELECT id, numeroCaso, barco, linea, descripcion, cant, rubro, proveedor, precio, estadoO260, categoria, depto
+    SELECT id, numeroCaso, barco, linea, descripcion, cant, rubro, proveedor, precio_unitario, precio, estadoO260, categoria, depto
     FROM solicitudes ${where}
     ORDER BY proveedor, barco, numeroCaso, linea
   `).all(...params);
@@ -339,9 +397,9 @@ app.post('/api/importar', requireAuth, upload.single('archivo'), (req, res) => {
 
     const insertSol = db.prepare(`
       INSERT OR IGNORE INTO solicitudes
-        (numeroCaso, barco, linea, codigo, fechaSSPP, depto, categoria, descripcion, cant, estadoO260, rubro, comentarioCompras, proveedor, precio)
+        (numeroCaso, barco, linea, codigo, fechaSSPP, depto, categoria, descripcion, cant, estadoO260, rubro, comentarioCompras, proveedor, precio_unitario, precio)
       VALUES
-        (@numeroCaso, @barco, @linea, @codigo, @fechaSSPP, @depto, @categoria, @descripcion, @cant, @estadoO260, @rubro, @comentarioCompras, @proveedor, @precio)
+        (@numeroCaso, @barco, @linea, @codigo, @fechaSSPP, @depto, @categoria, @descripcion, @cant, @estadoO260, @rubro, @comentarioCompras, @proveedor, @precio_unitario, @precio)
     `);
 
     let importadas = 0, duplicadas = 0, errores = [];
@@ -381,6 +439,7 @@ app.post('/api/importar', requireAuth, upload.single('archivo'), (req, res) => {
           rubro:             'Rubro no asignado.',
           comentarioCompras: '',
           proveedor:         '',
+          precio_unitario:   '',
           precio:            ''
         };
 
