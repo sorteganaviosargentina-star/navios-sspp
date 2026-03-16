@@ -529,8 +529,8 @@ tbody td { padding:9px 12px;font-size:12.5px;vertical-align:middle; }
         </div>
         <div class="form-group">
           <label class="label">Precio Unitario ($)</label>
-          <input class="input" id="edit-precio" type="text" placeholder="Ej: 12500 o 45.50">
-          <span style="font-size:11px;color:var(--gray400);margin-top:2px">El total se calcula automáticamente (unitario × cantidad)</span>
+          <input class="input" id="edit-precio" type="text" placeholder="Ej: 12500 o 12.500 o 12.500,50">
+          <span style="font-size:11px;color:var(--gray400);margin-top:2px">Sin $ — cualquier formato. El total se calcula solo (unitario × cantidad)</span>
         </div>
         <div class="form-group" style="grid-column:span 2">
           <label class="label">Comentarios Compras</label>
@@ -851,8 +851,8 @@ async function saveEdit() {
     const r = await api('GET', `/api/solicitudes/${editingId}`);
     const precioUnitario = document.getElementById('edit-precio').value.trim();
     const cant = parseFloat(r.cant) || 1;
-    // Calcular total: unitario × cantidad
-    const numUnit = parseFloat(precioUnitario.replace(/[^0-9.,]/g,'').replace(',','.')) || 0;
+    // Calcular total usando parsePrecio (acepta cualquier formato)
+    const numUnit = parsePrecio(precioUnitario) || 0;
     const precioTotal = numUnit > 0 ? (numUnit * cant).toFixed(2) : '';
     await api('PATCH', `/api/solicitudes/${editingId}`, {
       estadoO260:        document.getElementById('edit-estado').value,
@@ -1112,12 +1112,45 @@ function filterProveedores() {
   renderProveedores(filtered);
 }
 function parsePrecio(precio) {
-  if (!precio) return null;
-  const n = parseFloat(precio.replace(/[^0-9.,]/g,'').replace(',','.'));
+  if (!precio && precio !== 0) return null;
+  let s = String(precio).trim();
+  // Quitar signos, espacios, letras
+  s = s.replace(/[$\s]/g,'');
+  if (!s) return null;
+  // Detectar formato: si tiene coma Y punto, el último es decimal
+  // Ej: "37.000,50" → 37000.50 | "37,000.50" → 37000.50
+  // Si solo tiene coma: "37000,50" → 37000.50 | "37.000" → 37000
+  if (s.includes(',') && s.includes('.')) {
+    const lastComma = s.lastIndexOf(',');
+    const lastDot   = s.lastIndexOf('.');
+    if (lastComma > lastDot) {
+      // Formato europeo: 37.000,50
+      s = s.replace(/\./g,'').replace(',','.');
+    } else {
+      // Formato anglosajón: 37,000.50
+      s = s.replace(/,/g,'');
+    }
+  } else if (s.includes(',')) {
+    // Solo coma: puede ser decimal (1,5) o miles (37,000)
+    const parts = s.split(',');
+    if (parts[1] && parts[1].length <= 2) {
+      s = s.replace(',','.');  // decimal
+    } else {
+      s = s.replace(',','');   // miles
+    }
+  } else if (s.includes('.')) {
+    // Solo punto: decimal si 1-2 dígitos después, miles si 3
+    const parts = s.split('.');
+    if (parts[parts.length-1].length === 3 && parts.length > 1) {
+      s = s.replace(/\./g,''); // miles: 37.000 → 37000
+    }
+    // sino lo deja como está (37.5 → 37.5)
+  }
+  const n = parseFloat(s);
   return isNaN(n) ? null : n;
 }
 function formatPeso(n) {
-  if (!n) return '—';
+  if (!n && n !== 0) return '—';
   return '$ ' + n.toLocaleString('es-AR', {minimumFractionDigits:2, maximumFractionDigits:2});
 }
 function generarPDF(proveedor, lineas) {
