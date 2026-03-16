@@ -200,7 +200,7 @@ tbody td { padding:9px 12px;font-size:12.5px;vertical-align:middle; }
 .cancel-btn  { padding:4px 8px;border-radius:6px;background:var(--gray100);color:var(--gray600);font-size:11px;font-weight:600;border:none;cursor:pointer; }
 
 /* ─── PAGINATION ─── */
-.pagination { padding:12px 20px;border-top:1px solid var(--gray200);background:var(--white);display:flex;align-items:center;justify-content:space-between;flex-shrink:0; }
+.pagination { padding:12px 20px;border-top:2px solid var(--gray200);background:var(--white);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;bottom:0;z-index:10;box-shadow:0 -2px 8px rgba(0,0,0,.06); }
 .page-info { font-size:12px;color:var(--gray500); }
 .page-btns  { display:flex;gap:4px; }
 .page-btn   { width:30px;height:30px;border-radius:6px;border:1px solid var(--gray200);background:var(--white);font-size:12px;font-weight:600;cursor:pointer;color:var(--gray500);transition:all .15s;display:flex;align-items:center;justify-content:center; }
@@ -336,7 +336,7 @@ tbody td { padding:9px 12px;font-size:12.5px;vertical-align:middle; }
     <div class="main">
 
       <!-- ─ VISTA: SOLICITUDES ─ -->
-      <div id="view-solicitudes">
+      <div id="view-solicitudes" style="display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0">
         <div class="toolbar">
           <div class="search-wrap">
             <span class="icon">🔍</span>
@@ -450,7 +450,7 @@ tbody td { padding:9px 12px;font-size:12.5px;vertical-align:middle; }
         <div style="width:1px;height:24px;background:rgba(255,255,255,.2)"></div>
         <input id="bulk-rubro"     type="text" placeholder="Rubro"     style="background:#334155;border:1px solid #475569;color:#fff;padding:6px 10px;font-size:12px;width:130px;border-radius:8px;outline:none">
         <input id="bulk-proveedor" type="text" placeholder="Proveedor" style="background:#334155;border:1px solid #475569;color:#fff;padding:6px 10px;font-size:12px;width:150px;border-radius:8px;outline:none">
-        <input id="bulk-precio"    type="text" placeholder="Precio"    style="background:#334155;border:1px solid #475569;color:#fff;padding:6px 10px;font-size:12px;width:120px;border-radius:8px;outline:none">
+        <input id="bulk-precio"    type="text" placeholder="P. Unitario $"  style="background:#334155;border:1px solid #475569;color:#fff;padding:6px 10px;font-size:12px;width:120px;border-radius:8px;outline:none">
         <button onclick="applyBulk()" style="background:#3b82f6;color:#fff;border:none;border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;cursor:pointer">✓ Aplicar</button>
         <button onclick="clearSelection()" style="background:rgba(255,255,255,.1);color:#fff;border:none;border-radius:8px;padding:7px 12px;font-size:12px;cursor:pointer">✕</button>
       </div>
@@ -528,8 +528,9 @@ tbody td { padding:9px 12px;font-size:12.5px;vertical-align:middle; }
           <input class="input" id="edit-proveedor" type="text" placeholder="Nombre del proveedor">
         </div>
         <div class="form-group">
-          <label class="label">Precio</label>
-          <input class="input" id="edit-precio" type="text" placeholder="Ej: $12.500 o USD 45">
+          <label class="label">Precio Unitario ($)</label>
+          <input class="input" id="edit-precio" type="text" placeholder="Ej: 12500 o 45.50">
+          <span style="font-size:11px;color:var(--gray400);margin-top:2px">El total se calcula automáticamente (unitario × cantidad)</span>
         </div>
         <div class="form-group" style="grid-column:span 2">
           <label class="label">Comentarios Compras</label>
@@ -807,8 +808,12 @@ async function expandRow(e, id) {
           <span class="expand-value">${r.proveedor||'<em style="color:var(--gray300)">Sin asignar</em>'}</span>
         </div>
         <div class="expand-field">
-          <span class="expand-label">Precio</span>
-          <span class="expand-value">${r.precio||'<em style="color:var(--gray300)">Sin asignar</em>'}</span>
+          <span class="expand-label">Precio Unitario</span>
+          <span class="expand-value">${r.precio_unitario ? '$ '+r.precio_unitario : '<em style="color:var(--gray300)">Sin asignar</em>'}</span>
+        </div>
+        <div class="expand-field">
+          <span class="expand-label">Precio Total</span>
+          <span class="expand-value" style="font-weight:700;color:#15803d">${r.precio ? '$ '+r.precio : '<em style="color:var(--gray300)">Sin calcular</em>'}</span>
         </div>
         <div class="expand-field" style="grid-column:span 3">
           <span class="expand-label">Comentarios Compras</span>
@@ -833,7 +838,7 @@ async function openEdit(e, id) {
   document.getElementById('edit-categoria').value   = r.categoria || 'Normal';
   document.getElementById('edit-rubro').value       = (r.rubro === 'Rubro no asignado.' || r.rubro === '---') ? '' : (r.rubro||'');
   document.getElementById('edit-proveedor').value   = r.proveedor||'';
-  document.getElementById('edit-precio').value      = r.precio||'';
+  document.getElementById('edit-precio').value      = r.precio_unitario||r.precio||'';
   document.getElementById('edit-comentario').value  = r.comentarioCompras||'';
   document.getElementById('modal-edit').classList.remove('hidden');
 }
@@ -843,12 +848,19 @@ async function saveEdit() {
   const btn = document.getElementById('save-edit-btn');
   btn.textContent = 'Guardando…'; btn.disabled = true;
   try {
+    const r = await api('GET', `/api/solicitudes/${editingId}`);
+    const precioUnitario = document.getElementById('edit-precio').value.trim();
+    const cant = parseFloat(r.cant) || 1;
+    // Calcular total: unitario × cantidad
+    const numUnit = parseFloat(precioUnitario.replace(/[^0-9.,]/g,'').replace(',','.')) || 0;
+    const precioTotal = numUnit > 0 ? (numUnit * cant).toFixed(2) : '';
     await api('PATCH', `/api/solicitudes/${editingId}`, {
       estadoO260:        document.getElementById('edit-estado').value,
       categoria:         document.getElementById('edit-categoria').value,
       rubro:             document.getElementById('edit-rubro').value || 'Rubro no asignado.',
       proveedor:         document.getElementById('edit-proveedor').value,
-      precio:            document.getElementById('edit-precio').value,
+      precio_unitario:   precioUnitario,
+      precio:            precioTotal,
       comentarioCompras: document.getElementById('edit-comentario').value,
     });
     closeModal('modal-edit');
@@ -1058,12 +1070,13 @@ async function applyBulk() {
   if (!selectedIds.size) return;
   const rubro     = document.getElementById('bulk-rubro').value.trim();
   const proveedor = document.getElementById('bulk-proveedor').value.trim();
-  const precio    = document.getElementById('bulk-precio').value.trim();
-  if (!rubro && !proveedor && !precio) { showToast('Completá al menos un campo','error'); return; }
+  const precioU   = document.getElementById('bulk-precio').value.trim();
+  if (!rubro && !proveedor && !precioU) { showToast('Completá al menos un campo','error'); return; }
   const campos = {};
-  if (rubro)     campos.rubro     = rubro;
-  if (proveedor) campos.proveedor = proveedor;
-  if (precio)    campos.precio    = precio;
+  if (rubro)   campos.rubro           = rubro;
+  if (proveedor) campos.proveedor     = proveedor;
+  if (precioU) campos.precio_unitario = precioU;
+  // Nota: el precio total se calcula individualmente al editar cada línea
   try {
     const r = await api('PATCH', '/api/solicitudes/bulk', { ids:[...selectedIds], campos });
     showToast(`✓ ${r.updated} líneas actualizadas`);
