@@ -188,6 +188,35 @@ app.get('/api/solicitudes', requireAuth, (req, res) => {
 });
 
 // GET /api/solicitudes/:id — una sola línea
+app.patch('/api/solicitudes/bulk', requireAuth, (req, res) => {
+  const user = req.session.user;
+  if (user.rol === 'superintendente') return res.status(403).json({ error: 'Sin permiso' });
+
+  const { ids, campos } = req.body;
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids requeridos' });
+
+  const CAMPOS_EDITABLES = ['estadoO260','comentarioCompras','rubro','proveedor','precio','categoria'];
+  const updates = Object.entries(campos).filter(([k]) => CAMPOS_EDITABLES.includes(k) && campos[k] !== undefined && campos[k] !== '');
+
+  if (!updates.length) return res.status(400).json({ error: 'Sin campos a actualizar' });
+
+  const now = new Date().toLocaleString('es-AR');
+  const updateMany = db.transaction(() => {
+    for (const id of ids) {
+      const row = db.prepare('SELECT * FROM solicitudes WHERE id=?').get(id);
+      if (!row) continue;
+      for (const [campo, valor] of updates) {
+        db.prepare(`UPDATE solicitudes SET ${campo}=?, updated_at=?, updated_by=? WHERE id=?`)
+          .run(valor, now, user.username, id);
+        db.prepare('INSERT INTO historial (solicitud_id,numeroCaso,linea,barco,campo,valor_antes,valor_despues,usuario,fecha) VALUES (?,?,?,?,?,?,?,?,?)')
+          .run(id, row.numeroCaso, row.linea, row.barco, campo, row[campo]||'', valor, user.username, now);
+      }
+    }
+  });
+  updateMany();
+  res.json({ ok: true, updated: ids.length });
+});
+
 app.get('/api/solicitudes/:id', requireAuth, (req, res) => {
   const sol = db.prepare('SELECT * FROM solicitudes WHERE id = ?').get(req.params.id);
   if (!sol) return res.status(404).json({ error: 'No encontrada' });
@@ -263,36 +292,6 @@ app.get('/api/stats', requireAuth, (req, res) => {
   const recientes = db.prepare(`SELECT * FROM historial ORDER BY fecha DESC LIMIT 20`).all();
 
   res.json({ total, porEstado, porBarco, porCat, recientes });
-});
-
-// ─── RUTAS: BULK UPDATE ───────────────────────────────────────────────────────
-app.patch('/api/solicitudes/bulk', requireAuth, (req, res) => {
-  const user = req.session.user;
-  if (user.rol === 'superintendente') return res.status(403).json({ error: 'Sin permiso' });
-
-  const { ids, campos } = req.body;
-  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids requeridos' });
-
-  const CAMPOS_EDITABLES = ['estadoO260','comentarioCompras','rubro','proveedor','precio','categoria'];
-  const updates = Object.entries(campos).filter(([k]) => CAMPOS_EDITABLES.includes(k) && campos[k] !== undefined && campos[k] !== '');
-
-  if (!updates.length) return res.status(400).json({ error: 'Sin campos a actualizar' });
-
-  const now = new Date().toLocaleString('es-AR');
-  const updateMany = db.transaction(() => {
-    for (const id of ids) {
-      const row = db.prepare('SELECT * FROM solicitudes WHERE id=?').get(id);
-      if (!row) continue;
-      for (const [campo, valor] of updates) {
-        db.prepare(`UPDATE solicitudes SET ${campo}=?, updated_at=?, updated_by=? WHERE id=?`)
-          .run(valor, now, user.username, id);
-        db.prepare('INSERT INTO historial (solicitud_id,numeroCaso,linea,barco,campo,valor_antes,valor_despues,usuario,fecha) VALUES (?,?,?,?,?,?,?,?,?)')
-          .run(id, row.numeroCaso, row.linea, row.barco, campo, row[campo]||'', valor, user.username, now);
-      }
-    }
-  });
-  updateMany();
-  res.json({ ok: true, updated: ids.length });
 });
 
 // ─── RUTAS: TABLERO PROVEEDORES ───────────────────────────────────────────────
